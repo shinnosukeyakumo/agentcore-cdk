@@ -1,0 +1,57 @@
+import { Stack } from "aws-cdk-lib";
+import * as agentcore from "@aws-cdk/aws-bedrock-agentcore-alpha";
+import * as iam from "aws-cdk-lib/aws-iam";
+import { Platform } from "aws-cdk-lib/aws-ecr-assets";
+import { ContainerImageBuild } from "deploy-time-build";
+import { IUserPool, IUserPoolClient } from "aws-cdk-lib/aws-cognito";
+import * as path from "path";
+import { fileURLToPath } from "url";
+
+export function createAgentCoreRuntime(
+  stack: Stack,
+  userPool: IUserPool,
+  userPoolClient: IUserPoolClient
+) {
+  // Amplify/agent/ ディレクトリの Dockerfile からコンテナイメージをビルドして ECR へプッシュ
+  const agentImage = new ContainerImageBuild(stack, "AgentImage", {
+    directory: path.dirname(fileURLToPath(import.meta.url)),
+    platform: Platform.LINUX_ARM64,
+  });
+
+  // スタック名から環境IDを生成（Amplifyが付与するブランチ名を含む）
+  const stackNameParts = stack.stackName.split("-");
+  const rawEnvId =
+    stackNameParts.length >= 4
+      ? stackNameParts[3]
+      : stack.stackName.slice(-10);
+  const envId = rawEnvId.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+
+  // AgentCore Runtime（L2コンストラクト）
+  const runtime = new agentcore.Runtime(stack, "ChatAgentRuntime", {
+    runtimeName: `chat_agent_${envId}`,
+    agentRuntimeArtifact: agentcore.AgentRuntimeArtifact.fromEcrRepository(
+      agentImage.repository,
+      agentImage.imageTag
+    ),
+    // Cognito JWT 認証（フロントエンドからのJWTトークンを検証）
+    authorizerConfiguration:
+      agentcore.RuntimeAuthorizerConfiguration.usingCognito(userPool, [
+        userPoolClient,
+      ]),
+    networkConfiguration:
+      agentcore.RuntimeNetworkConfiguration.usingPublicNetwork(),
+  });
+
+  // Bedrock モデル呼び出し権限を付与
+  runtime.addToRolePolicy(
+    new iam.PolicyStatement({
+      actions: ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+      resources: [
+        "arn:aws:bedrock:*::foundation-model/*",
+        "arn:aws:bedrock:*:*:inference-profile/*",
+      ],
+    })
+  );
+
+  return { runtime };
+}

@@ -27,3 +27,15 @@ dist-ssr
 .amplify
 amplify_outputs*
 amplifyconfiguration*
+
+# 環境変数（機密情報）
+.env
+.env.local
+.env.*.local
+
+# CDK Python
+cdk/.venv
+cdk/__pycache__
+cdk/**/__pycache__
+cdk/*.egg-info
+cdk/cdk.out

@@ -1,65 +1,236 @@
-body {
+* {
+  box-sizing: border-box;
   margin: 0;
-  background: linear-gradient(180deg, rgb(117, 81, 194), rgb(255, 255, 255));
-  display: flex;
+  padding: 0;
+}
+
+body {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  background: #f0f2f5;
   height: 100vh;
-  width: 100vw;
+  display: flex;
   justify-content: center;
   align-items: center;
 }
 
-main {
+#root {
+  width: 100%;
+  height: 100vh;
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
+  justify-content: center;
+  align-items: center;
 }
 
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
+/* チャットコンテナ */
+.chat-container {
+  width: 100%;
+  max-width: 800px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: white;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+}
+
+/* ヘッダー */
+.chat-header {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
   color: white;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+  padding: 16px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
 }
 
-ul {
-  padding-inline-start: 0;
-  margin-block-start: 0;
-  margin-block-end: 0;
-  list-style-type: none;
+.chat-header h1 {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.header-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.user-email {
+  font-size: 0.85rem;
+  opacity: 0.85;
+}
+
+.sign-out-btn {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.sign-out-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* メッセージエリア */
+.messages-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
   display: flex;
   flex-direction: column;
-  margin: 8px 0;
-  border: 1px solid black;
-  gap: 1px;
-  background-color: black;
+  gap: 16px;
+}
+
+.empty-state {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: #9ca3af;
+  font-size: 1rem;
+}
+
+/* メッセージ */
+.message {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 75%;
+}
+
+.message.user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.message.assistant {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+.message-label {
+  font-size: 0.75rem;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.message-content {
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.message.user .message-content {
+  background: #6366f1;
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+.message.assistant .message-content {
+  background: #f3f4f6;
+  color: #111827;
+  border-bottom-left-radius: 4px;
+}
+
+/* Markdown スタイル（AIの応答内） */
+.message.assistant .message-content p { margin: 0 0 8px; }
+.message.assistant .message-content p:last-child { margin-bottom: 0; }
+.message.assistant .message-content code {
+  background: #e5e7eb;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+.message.assistant .message-content pre {
+  background: #1f2937;
+  color: #f9fafb;
+  padding: 12px;
   border-radius: 8px;
-  overflow: auto;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.message.assistant .message-content pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+.message.assistant .message-content ul,
+.message.assistant .message-content ol {
+  padding-left: 20px;
+  margin: 4px 0;
 }
 
-li {
-  background-color: white;
-  padding: 8px;
+/* ツール使用・思考中インジケーター */
+.tool-indicator {
+  display: inline-block;
+  color: #6366f1;
+  font-size: 0.9rem;
+  font-style: italic;
 }
 
-li:hover {
-  background: #dadbf9;
+.thinking {
+  color: #9ca3af;
+  font-style: italic;
 }
 
-a {
-  font-weight: 800;
-  text-decoration: none;
+/* 入力エリア */
+.input-area {
+  padding: 16px;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  flex-shrink: 0;
+  background: white;
+}
+
+.input-area textarea {
+  flex: 1;
+  padding: 12px 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  resize: none;
+  outline: none;
+  transition: border-color 0.2s;
+  line-height: 1.5;
+}
+
+.input-area textarea:focus {
+  border-color: #6366f1;
+}
+
+.input-area textarea:disabled {
+  background: #f9fafb;
+  color: #9ca3af;
+}
+
+.input-area button {
+  padding: 12px 20px;
+  background: #6366f1;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+  align-self: flex-end;
+}
+
+.input-area button:hover:not(:disabled) {
+  background: #4f46e5;
+}
+
+.input-area button:disabled {
+  background: #c7d2fe;
+  cursor: not-allowed;
 }
