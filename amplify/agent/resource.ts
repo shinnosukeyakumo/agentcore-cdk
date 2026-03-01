@@ -232,8 +232,9 @@ export function createAgentCoreRuntime(
 
   // ===== AgentCore Gateway（L2コンストラクト） =====
   // デフォルト設定：MCPプロトコル + Cognito M2M認証（自動作成）
+  // Gateway名はハイフン区切りのみ許可（アンダースコア不可）
   const gateway = new agentcore.Gateway(stack, "AgentGateway", {
-    gatewayName: `agent_gateway_${envId}`,
+    gatewayName: `agent-gateway-${envId}`,
     protocolConfiguration: agentcore.GatewayProtocol.mcp(),
     // authorizerConfiguration を省略 → Cognito User Pool が自動作成される
   });
