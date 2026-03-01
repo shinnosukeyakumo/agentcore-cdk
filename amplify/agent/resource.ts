@@ -300,6 +300,13 @@ export function createAgentCoreRuntime(
     "UserPoolClient.ClientSecret"
   );
 
+  // Cognito クライアントに許可されている実際のスコープを動的に取得
+  // Gateway が自動生成するスコープは "<stack-id>-AgentGateway-<hash>/read" の形式で
+  // デプロイごとに変わるため、describeUserPoolClient の結果から直接取得する
+  const gatewayScope = getClientSecretCR.getResponseField(
+    "UserPoolClient.AllowedOAuthScopes.0"
+  );
+
   // ===== Gateway M2M接続情報をまとめてSecrets Managerに保存 =====
   // Runtime上のエージェントがこのシークレットを読み込んでGatewayに接続する
   const gatewayConfigSecret = new sm.CfnSecret(stack, "GatewayConfig", {
@@ -310,7 +317,7 @@ export function createAgentCoreRuntime(
       clientSecret: gatewayClientSecret,
       tokenEndpoint: gateway.tokenEndpointUrl,
       gatewayUrl: gateway.gatewayUrl,
-      scopes: "bedrock-agentcore-gateway/invoke",
+      scopes: gatewayScope,
     }),
   });
 
