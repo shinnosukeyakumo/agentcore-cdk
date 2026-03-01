@@ -205,13 +205,11 @@ export function createAgentCoreRuntime(
     code: lambda.Code.fromInline(IDENTITY_PROVIDER_LAMBDA_CODE),
   });
 
+  // bedrock-agentcore コントロールプレーンのすべての操作を許可
+  // （個別のアクション名はIAMで検証されるため、ワイルドカードで確実に許可）
   identityFn.addToRolePolicy(
     new iam.PolicyStatement({
-      actions: [
-        "bedrock-agentcore:CreateApiKeyCredentialProvider",
-        "bedrock-agentcore:GetApiKeyCredentialProvider",
-        "bedrock-agentcore:DeleteApiKeyCredentialProvider",
-      ],
+      actions: ["bedrock-agentcore:*"],
       resources: ["*"],
     })
   );
@@ -235,7 +233,10 @@ export function createAgentCoreRuntime(
   // Gateway名はハイフン区切りのみ許可（アンダースコア不可）
   const gateway = new agentcore.Gateway(stack, "AgentGateway", {
     gatewayName: `agent-gateway-${envId}`,
-    protocolConfiguration: agentcore.GatewayProtocol.mcp(),
+    // MCP設定は空にできない → supportedVersions を必ず指定する
+    protocolConfiguration: agentcore.GatewayProtocol.mcp({
+      supportedVersions: [agentcore.MCPProtocolVersion.MCP_2025_03_26],
+    }),
     // authorizerConfiguration を省略 → Cognito User Pool が自動作成される
   });
 
