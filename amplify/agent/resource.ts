@@ -127,10 +127,18 @@ def handler(event, context):
             else:
                 raise Exception(f"Failed to create credential provider: {err_msg}")
 
+        # Identityが内部で作成したSecretsManagerのシークレットARNを取得する
+        # このARNをGatewayのcredentialProviderに渡す必要がある（自前のシークレットARNではない）
+        get_resp = client.get_api_key_credential_provider(name=provider_name)
+        api_key_secret_arn = get_resp.get("apiKeySecretArn", {}).get("secretArn", "")
+
         # cr.Provider では return dict でフレームワークに結果を返す
         return {
             "PhysicalResourceId": provider_name,
-            "Data": {"CredentialProviderArn": arn},
+            "Data": {
+                "CredentialProviderArn": arn,
+                "ApiKeySecretArn": api_key_secret_arn,
+            },
         }
 
     elif event["RequestType"] == "Delete":
@@ -236,11 +244,17 @@ export function createAgentCoreRuntime(
     properties: {
       ProviderName: "tavily-search",
       ApiKey: TAVILY_API_KEY,
+      // Version を更新することで Lambda Custom Resource を強制再実行し
+      // ApiKeySecretArn を Data に含めた新しいレスポンスを取得する
+      Version: "2",
     },
   });
 
   const identityProviderArn =
     identityProvider.getAttString("CredentialProviderArn");
+  // Identity が内部で作成したシークレットのARN（自前の agentcore-tavily-apikey とは別物）
+  const identityApiKeySecretArn =
+    identityProvider.getAttString("ApiKeySecretArn");
 
   // ===== AgentCore Gateway（L2コンストラクト） =====
   // デフォルト設定：MCPプロトコル + Cognito M2M認証（自動作成）
@@ -262,7 +276,8 @@ export function createAgentCoreRuntime(
     credentialProviderConfigurations: [
       agentcore.GatewayCredentialProvider.fromApiKeyIdentityArn({
         providerArn: identityProviderArn,
-        secretArn: tavilySecret.secretArn,
+        // Identity が内部で作成したシークレットARNを使用する（自前のシークレットではない）
+        secretArn: identityApiKeySecretArn,
         // Tavily APIキーを Authorization: Bearer ヘッダーとして注入
         credentialLocation: agentcore.ApiKeyCredentialLocation.header({
           credentialParameterName: "Authorization",
