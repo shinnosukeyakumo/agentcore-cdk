@@ -97,9 +97,11 @@ const TAVILY_OPENAPI_SCHEMA = JSON.stringify({
 });
 
 // AgentCore Identity 認証プロバイダーを作成するLambdaのコード
+// 重要: cr.Provider フレームワーク用なので cfnresponse.send() は使わず return dict にする
+// cfnresponse.send() は CloudFormation の直接Lambdaハンドラー用であり、
+// cr.Provider では Lambda が return した値がフレームワークに渡される
 const IDENTITY_PROVIDER_LAMBDA_CODE = `
 import boto3
-import cfnresponse
 
 def handler(event, context):
     client = boto3.client("bedrock-agentcore-control", region_name="us-west-2")
@@ -114,31 +116,29 @@ def handler(event, context):
                 apiKey=api_key,
             )
             arn = resp["credentialProviderArn"]
-            cfnresponse.send(event, context, cfnresponse.SUCCESS,
-                {"CredentialProviderArn": arn}, physicalResourceId=provider_name)
         except Exception as e:
             err_msg = str(e)
             # すでに存在する場合は既存のARNを返す
-            if "already exists" in err_msg.lower() or "conflict" in err_msg.lower():
-                try:
-                    resp = client.get_api_key_credential_provider(name=provider_name)
-                    arn = resp["credentialProviderArn"]
-                    cfnresponse.send(event, context, cfnresponse.SUCCESS,
-                        {"CredentialProviderArn": arn}, physicalResourceId=provider_name)
-                except Exception as e2:
-                    cfnresponse.send(event, context, cfnresponse.FAILED,
-                        {"Error": str(e2)}, physicalResourceId=provider_name)
+            if ("already exists" in err_msg.lower()
+                    or "conflict" in err_msg.lower()
+                    or "ConflictException" in err_msg):
+                resp = client.get_api_key_credential_provider(name=provider_name)
+                arn = resp["credentialProviderArn"]
             else:
-                cfnresponse.send(event, context, cfnresponse.FAILED,
-                    {"Error": err_msg}, physicalResourceId=provider_name)
+                raise Exception(f"Failed to create credential provider: {err_msg}")
+
+        # cr.Provider では return dict でフレームワークに結果を返す
+        return {
+            "PhysicalResourceId": provider_name,
+            "Data": {"CredentialProviderArn": arn},
+        }
 
     elif event["RequestType"] == "Delete":
         try:
             client.delete_api_key_credential_provider(name=provider_name)
         except Exception:
             pass
-        cfnresponse.send(event, context, cfnresponse.SUCCESS, {},
-            physicalResourceId=provider_name)
+        return {"PhysicalResourceId": provider_name}
 `;
 
 export function createAgentCoreRuntime(
