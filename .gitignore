@@ -33,9 +33,6 @@ amplifyconfiguration*
 .env.local
 .env.*.local
 
-# CDK Python
-cdk/.venv
-cdk/__pycache__
-cdk/**/__pycache__
-cdk/*.egg-info
-cdk/cdk.out
+# CDK（Amplify Gen2 内部）
+cdk.out
+.cdk.staging

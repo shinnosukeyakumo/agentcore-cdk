@@ -2,7 +2,7 @@ import { Stack } from "aws-cdk-lib";
 import * as agentcore from "@aws-cdk/aws-bedrock-agentcore-alpha";
 import * as iam from "aws-cdk-lib/aws-iam";
 import { Platform } from "aws-cdk-lib/aws-ecr-assets";
-import { ContainerImageBuild } from "deploy-time-build";
+import { ContainerImageBuild } from "@cdklabs/deploy-time-build";
 import { IUserPool, IUserPoolClient } from "aws-cdk-lib/aws-cognito";
 import * as path from "path";
 import { fileURLToPath } from "url";

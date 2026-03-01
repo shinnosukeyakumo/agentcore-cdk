@@ -25,7 +25,7 @@
     "@aws-amplify/backend-cli": "~1.8.1",
     "@aws-cdk/aws-bedrock-agentcore-alpha": "latest",
     "@types/node": "^22.0.0",
-    "deploy-time-build": "latest",
+    "@cdklabs/deploy-time-build": "latest",
     "@eslint/compat":  "~2.0.1",
     "@eslint/eslintrc": "~3.3.3",
     "@eslint/js": "~9.39.2",
