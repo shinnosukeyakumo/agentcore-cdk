@@ -206,10 +206,24 @@ export function createAgentCoreRuntime(
   });
 
   // bedrock-agentcore コントロールプレーンのすべての操作を許可
-  // （個別のアクション名はIAMで検証されるため、ワイルドカードで確実に許可）
   identityFn.addToRolePolicy(
     new iam.PolicyStatement({
       actions: ["bedrock-agentcore:*"],
+      resources: ["*"],
+    })
+  );
+  // create_api_key_credential_provider は内部的に Secrets Manager にAPIキーを保存するため
+  // secretsmanager:CreateSecret 等の権限も必要
+  identityFn.addToRolePolicy(
+    new iam.PolicyStatement({
+      actions: [
+        "secretsmanager:CreateSecret",
+        "secretsmanager:PutSecretValue",
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:DeleteSecret",
+        "secretsmanager:TagResource",
+        "secretsmanager:DescribeSecret",
+      ],
       resources: ["*"],
     })
   );
