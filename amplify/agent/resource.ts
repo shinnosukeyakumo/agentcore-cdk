@@ -553,6 +553,10 @@ export function createAgentCoreRuntime(
   gatewayConfigSecret.node.addDependency(gatewayOAuth2ProviderCR);
 
   // ===== RuntimeのIAMロールにSecrets Manager読み取り権限を付与 =====
+  // GetResourceOauth2Token が Identity 内部で secretsmanager:GetSecretValue を呼ぶ際、
+  // create_oauth2_credential_provider が作成した clientSecretArn を読み込む。
+  // このシークレット ARN は Custom Resource 実行後でないと確定しないため（Fn::GetAtt が空になり
+  // CloudFormation の IAM ポリシー構文エラーを引き起こす）、アカウント/リージョン範囲で許可する。
   runtime.addToRolePolicy(
     new iam.PolicyStatement({
       actions: ["secretsmanager:GetSecretValue"],
@@ -565,19 +569,16 @@ export function createAgentCoreRuntime(
           stack.account,
           ":secret:agentcore-gateway-config*",
         ]),
+        // Identity が作成する OAuth2/API キークレデンシャルプロバイダーのシークレット
+        // （ARN は Identity が動的に決定するため、同一アカウント/リージョン範囲で許可）
+        Fn.join("", [
+          "arn:aws:secretsmanager:",
+          stack.region,
+          ":",
+          stack.account,
+          ":secret:*",
+        ]),
       ],
-    })
-  );
-
-  // ===== RuntimeのIAMロールにOAuth2 clientSecret シークレット読み取り権限を付与 =====
-  // GetResourceOauth2Token が Identity 内部で secretsmanager:GetSecretValue を呼ぶため
-  // create_oauth2_credential_provider が作成した clientSecretArn への権限が必要
-  const oauthClientSecretArn =
-    gatewayOAuth2ProviderCR.getAttString("ClientSecretArn");
-  runtime.addToRolePolicy(
-    new iam.PolicyStatement({
-      actions: ["secretsmanager:GetSecretValue"],
-      resources: [oauthClientSecretArn],
     })
   );
 
