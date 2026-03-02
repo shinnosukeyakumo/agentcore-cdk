@@ -339,21 +339,6 @@ export function createAgentCoreRuntime(
     ],
   });
 
-  // ===== CDK Grantフラット化バグの Workaround =====
-  // GetWorkloadAccessToken は workload identity ARN に対して付与する必要があるが
-  // CDK の fromApiKeyIdentityArn() が誤って providerArn に付与してしまうため手動で追加する
-  // workload identity ARN = workload-identity-directory/default/workload-identity/{gatewayId}
-  if (gateway.role) {
-    gateway.role.addToPrincipalPolicy(
-      new iam.PolicyStatement({
-        actions: ["bedrock-agentcore:GetWorkloadAccessToken"],
-        resources: [
-          `arn:aws:bedrock-agentcore:${stack.region}:${stack.account}:workload-identity-directory/default/workload-identity/${gateway.gatewayId}`,
-        ],
-      })
-    );
-  }
-
   // ===== Gateway M2M認証情報を取得 =====
   // カスタム Cognito クライアントのシークレットを取得する
   const getClientSecretCR = new cr.AwsCustomResource(
