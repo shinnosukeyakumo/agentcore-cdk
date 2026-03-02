@@ -5,47 +5,9 @@ from strands import Agent
 from strands.tools.mcp import MCPClient
 from mcp.client.streamable_http import streamablehttp_client
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
-from bedrock_agentcore.identity import requires_access_token
+from bedrock_agentcore.identity.auth import requires_access_token
 
 app = BedrockAgentCoreApp()
-
-
-def _init_gateway_config() -> tuple[str, str]:
-    """
-    コンテナ起動時に Secrets Manager から gatewayUrl と scopes を読み込む。
-    M2M 認証情報（clientId/clientSecret）は AgentCore Identity に移管済みのため不要。
-    """
-    try:
-        sm_client = boto3.client("secretsmanager", region_name="us-west-2")
-        secret_value = sm_client.get_secret_value(
-            SecretId="agentcore-gateway-config"
-        )
-        config = json.loads(secret_value["SecretString"])
-        return config.get("gatewayUrl", ""), config.get("scopes", "gateway-main/invoke")
-    except Exception as e:
-        print(f"[WARNING] Gateway設定の読み込みに失敗しました: {e}")
-        return "", "gateway-main/invoke"
-
-
-# コンテナ起動時に一度だけ設定を読み込む（以降はキャッシュを再利用）
-_GATEWAY_URL, _GATEWAY_SCOPE = _init_gateway_config()
-
-
-@requires_access_token(
-    provider_name="gateway-m2m-oauth",  # Identity に登録した CustomOauth2 プロバイダー名
-    scopes=[_GATEWAY_SCOPE],             # e.g. ["gateway-main/invoke"]
-    auth_flow="M2M",                     # client_credentials フロー（ユーザー操作不要）
-    into="access_token",                 # トークンを注入するキーワード引数名
-)
-async def _fetch_gateway_token(*, access_token: str) -> str:
-    """
-    AgentCore Identity から Gateway M2M アクセストークンを取得する。
-
-    @requires_access_token デコレータが Cognito client_credentials フローを自動実行し、
-    取得したトークンを access_token パラメータに注入する。
-    手動での OAuth2 リクエスト（httpx.post）は不要。
-    """
-    return access_token
 
 
 def convert_event(event) -> dict | None:
@@ -85,24 +47,49 @@ async def invoke_agent(payload, context):
     AgentCore Runtime のエントリポイント
 
     処理フロー:
-    1. @requires_access_token デコレータが Identity 経由で M2M トークンを自動取得
-    2. AgentCore Gateway に MCP クライアントとして接続
-    3. Gateway 経由で Tavily 検索ツールを使って Strands Agent を実行
-    4. ストリーミングレスポンスをフロントエンドへ送信
+    1. Secrets Manager から gatewayUrl と scopes を取得
+    2. @requires_access_token デコレータをエントリポイント内で定義
+       → provider_name / scopes を動的に設定可能（参考実装パターン）
+    3. Identity 経由で M2M トークンを取得してから Gateway に MCP 接続
+    4. Tavily 検索ツールを使って Strands Agent をストリーミング実行
     """
     prompt = payload.get("prompt", "")
 
+    # Gateway 設定を Secrets Manager から読み込む
+    sm_client = boto3.client("secretsmanager", region_name="us-west-2")
+    config = json.loads(
+        sm_client.get_secret_value(SecretId="agentcore-gateway-config")["SecretString"]
+    )
+    gateway_url = config["gatewayUrl"]
+    scopes = config.get("scopes", "gateway-main/invoke")
+
+    # @requires_access_token をエントリポイント内で定義することで
+    # リクエストごとに動的な provider_name / scopes を設定できる（参考実装パターン）
+    @requires_access_token(
+        provider_name="gateway-m2m-oauth",
+        scopes=scopes.split() if scopes else [],
+        auth_flow="M2M",
+        force_authentication=False,
+    )
+    async def _get_gateway_token(*, access_token: str) -> str:
+        """
+        AgentCore Identity から Gateway M2M アクセストークンを取得する。
+        @requires_access_token デコレータが Cognito client_credentials フローを自動実行し
+        トークンを access_token パラメータに注入する。
+        """
+        return access_token
+
     try:
-        # Identity サービスから M2M アクセストークンを自動取得
-        # （@requires_access_token デコレータが Cognito client_credentials フローを実行）
-        token = await _fetch_gateway_token()
+        # Identity から M2M アクセストークンを取得
+        token = await _get_gateway_token()  # type: ignore[call-arg]  # access_token はデコレータが注入
+        print("✅ アクセストークン取得成功")
 
         # AgentCore Gateway に MCP クライアントとして接続
         mcp_client = MCPClient(
             lambda: streamablehttp_client(
-                url=_GATEWAY_URL,
+                gateway_url,
                 headers={"Authorization": f"Bearer {token}"},
-            ),
+            )
         )
 
         with mcp_client:
@@ -112,15 +99,14 @@ async def invoke_agent(payload, context):
             #   tool_name 属性（プレフィックス済み）でフィルタする。
             all_tools = mcp_client.list_tools_sync()
             all_tool_names = [getattr(t, "tool_name", str(t)) for t in all_tools]
-            print(f"[DEBUG] Gateway全ツール: {all_tool_names}")
+            print(f"🛠️ Gateway全ツール: {all_tool_names}")
 
             TARGET_TOOL = "tavily-search___searchWeb"
             tools = [t for t in all_tools if getattr(t, "tool_name", "") == TARGET_TOOL]
-            print(f"[DEBUG] フィルタ後ツール: {[getattr(t, 'tool_name', str(t)) for t in tools]}")
+            print(f"🛠️ フィルタ後ツール: {[getattr(t, 'tool_name', str(t)) for t in tools]}")
 
             if not tools:
-                # ターゲットツールが見つからない場合は全ツールを使用（フォールバック）
-                print(f"[WARNING] {TARGET_TOOL} が見つかりません。全ツールを使用: {all_tool_names}")
+                print(f"⚠️ {TARGET_TOOL} が見つかりません。全ツールを使用: {all_tool_names}")
                 tools = all_tools
 
             # 現在の日付を動的に注入（モデルのトレーニングカットオフによる誤った年の使用を防ぐ）
@@ -138,6 +124,7 @@ async def invoke_agent(payload, context):
                 ),
                 tools=tools,
             )
+            print("✅ エージェント初期化完了")
 
             async for event in agent.stream_async(prompt):
                 converted = convert_event(event)
@@ -147,6 +134,7 @@ async def invoke_agent(payload, context):
     except Exception as e:
         # Gateway 接続に失敗した場合はツールなしで応答（フォールバック）
         error_info = str(e)
+        print(f"❌ Gateway接続エラー: {error_info}")
         today = datetime.now().strftime("%Y年%m月%d日")
 
         agent = Agent(

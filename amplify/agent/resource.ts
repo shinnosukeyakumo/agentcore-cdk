@@ -207,10 +207,19 @@ def handler(event, context):
             else:
                 raise Exception(f"Failed to create OAuth2 credential provider: {err_msg}")
 
+        # clientSecretArn を取得する
+        # GetResourceOauth2Token が Runtime の IAM ロールで secretsmanager:GetSecretValue を
+        # 呼び出すため、このシークレット ARN への権限付与が必要
+        get_resp = client.get_oauth2_credential_provider(name=provider_name)
+        print(f"DEBUG get_oauth2 response keys: {list(get_resp.keys())}")
+        client_secret_arn = get_resp.get("clientSecretArn", "")
+        print(f"DEBUG clientSecretArn: {client_secret_arn}")
+
         return {
             "PhysicalResourceId": provider_name,
             "Data": {
                 "CredentialProviderArn": arn,
+                "ClientSecretArn": client_secret_arn,
             },
         }
 
@@ -520,7 +529,7 @@ export function createAgentCoreRuntime(
         // getClientSecretCR が取得した Cognito M2M クライアントシークレット
         ClientSecret: gatewayClientSecret,
         Region: stack.region,
-        Version: "1",
+        Version: "2",
       },
     }
   );
@@ -557,6 +566,18 @@ export function createAgentCoreRuntime(
           ":secret:agentcore-gateway-config*",
         ]),
       ],
+    })
+  );
+
+  // ===== RuntimeのIAMロールにOAuth2 clientSecret シークレット読み取り権限を付与 =====
+  // GetResourceOauth2Token が Identity 内部で secretsmanager:GetSecretValue を呼ぶため
+  // create_oauth2_credential_provider が作成した clientSecretArn への権限が必要
+  const oauthClientSecretArn =
+    gatewayOAuth2ProviderCR.getAttString("ClientSecretArn");
+  runtime.addToRolePolicy(
+    new iam.PolicyStatement({
+      actions: ["secretsmanager:GetSecretValue"],
+      resources: [oauthClientSecretArn],
     })
   );
 
