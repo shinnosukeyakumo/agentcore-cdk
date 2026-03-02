@@ -46,15 +46,8 @@ const TAVILY_OPENAPI_SCHEMA = JSON.stringify({
                   },
                   max_results: {
                     type: "integer",
-                    default: 5,
+                    default: 3,
                     description: "Maximum number of search results to return",
-                  },
-                  search_depth: {
-                    type: "string",
-                    enum: ["basic", "advanced"],
-                    default: "basic",
-                    description:
-                      "Search depth: basic (fast) or advanced (thorough)",
                   },
                 },
               },
