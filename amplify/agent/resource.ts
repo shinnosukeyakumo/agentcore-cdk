@@ -339,6 +339,22 @@ export function createAgentCoreRuntime(
     ],
   });
 
+  // CDK L2 の fromApiKeyIdentityArn は Grant フラッティングバグにより
+  // GetWorkloadAccessToken / GetResourceApiKey を誤ったリソース ARN に設定する。
+  // 実際に必要なリソース:
+  //   - GetWorkloadAccessToken: workload-identity-directory/{dir} と workload-identity/{id}
+  //   - GetResourceApiKey: token-vault/{vault} と workload-identity/{id} の両方
+  // CDK 修正が適用されるまでの間、Resource: "*" で確実に動作させる。
+  (gateway.role as iam.IRole).addToPrincipalPolicy(
+    new iam.PolicyStatement({
+      actions: [
+        "bedrock-agentcore:GetWorkloadAccessToken",
+        "bedrock-agentcore:GetResourceApiKey",
+      ],
+      resources: ["*"],
+    })
+  );
+
   // ===== Gateway M2M認証情報を取得 =====
   // カスタム Cognito クライアントのシークレットを取得する
   const getClientSecretCR = new cr.AwsCustomResource(
