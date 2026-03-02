@@ -165,18 +165,24 @@ export function createAgentCoreRuntime(
     platform: Platform.LINUX_ARM64,
   });
 
-  // スタック名から環境IDを生成（例: "amplify-d3nt7aujsrzeps-main-branch-AgentCoreStack"）
+  // ===== 安定した環境ID の生成 =====
+  // stack.stackName にはデプロイごとに変わる一時ハッシュが含まれるため、
+  // Amplify パイプラインが必ず提供する環境変数を優先して使用する。
+  // AWS_APP_ID  : Amplifyアプリの固有ID（例: "d3nt7aujsrzeps"）
+  // AWS_BRANCH  : デプロイ対象ブランチ名（例: "main"）
+  // これらは同じAmplifyアプリ・ブランチで常に同じ値になり、
+  // 派生するリソース名（ResourceServer識別子など）が安定する。
   const stackNameParts = stack.stackName.split("-");
-  // appId（Amplifyアプリ固有ID）: スタック名の2番目の要素（例: "d3nt7aujsrzeps"）
-  const appId = stackNameParts.length >= 2 ? stackNameParts[1] : "app";
-  const rawEnvId =
-    stackNameParts.length >= 4
-      ? stackNameParts[3]
-      : stack.stackName.slice(-10);
-  const envId = rawEnvId.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+  const appId =
+    process.env.AWS_APP_ID ||
+    (stackNameParts.length >= 2 ? stackNameParts[1] : "app");
+  const envId = (process.env.AWS_BRANCH || "main")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .toLowerCase()
+    .substring(0, 10);
 
   // Cognito ドメインプレフィックス（グローバル一意）: アプリIDの先頭12文字を使用
-  // 例: "agentgwd3nt7aujsrzep"（20文字）
+  // 例: "agentgwd3nt7aujsrze"（19文字）
   const cognitoDomainPrefix = `agentgw${appId.substring(0, 12)}`
     .toLowerCase()
     .replace(/[^a-z0-9-]/g, "")
@@ -310,8 +316,8 @@ export function createAgentCoreRuntime(
   // Gateway名はハイフン区切りのみ許可（アンダースコア不可）
   // ※ Gateway は CloudFormation によるインプレース UPDATE が不可のため、
   //    設定変更時はロジカルIDと名前を変更して強制 CREATE（古いものは DELETE）する。
-  const gateway = new agentcore.Gateway(stack, "AgentGateway3", {
-    gatewayName: `agent-gw3-${envId}`,
+  const gateway = new agentcore.Gateway(stack, "AgentGateway4", {
+    gatewayName: `agent-gw4-${envId}`,
     protocolConfiguration: agentcore.GatewayProtocol.mcp({
       supportedVersions: [agentcore.MCPProtocolVersion.MCP_2025_03_26],
     }),
@@ -347,7 +353,7 @@ export function createAgentCoreRuntime(
   // CloudFormation が Gateway の UPDATE を試みて "Name cannot be updated" エラーになる。
   // 回避策: CfnRolePolicy (L1) を使って別リソースとして追加する。
   // → Gateway の DependsOn チェーンに入らないため、Gateway UPDATE は発生しない。
-  new iam.CfnRolePolicy(stack, "GatewayWorkloadPolicy3", {
+  new iam.CfnRolePolicy(stack, "GatewayWorkloadPolicy4", {
     roleName: (gateway.role as iam.IRole).roleName,
     policyName: "WorkloadIdentityAccess",
     policyDocument: {
