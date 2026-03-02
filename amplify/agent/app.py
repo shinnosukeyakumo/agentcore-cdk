@@ -96,25 +96,28 @@ async def invoke_agent(payload, context):
         gateway_url = config["gatewayUrl"]
 
         # AgentCore Gateway に MCP クライアントとして接続
-        # Gateway が Tavily 検索ツールを MCP ツールとして提供する
+        # tool_filters で tavily-search___searchWeb のみ許可し、
+        # Gateway が返す他のツール（search_web 等）を除外する
         mcp_client = MCPClient(
             lambda: streamablehttp_client(
                 url=gateway_url,
                 headers={"Authorization": f"Bearer {token}"},
-            )
+            ),
+            tool_filters={"allowed": ["tavily-search___searchWeb"]},
         )
 
         with mcp_client:
-            # Gateway が提供するツール一覧を取得（Tavily 検索など）
+            # Gateway が提供するツール一覧を取得（Tavily 検索のみ）
             tools = mcp_client.list_tools_sync()
+            print(f"利用可能なツール: {[getattr(t, 'tool_name', str(t)) for t in tools]}")
 
             agent = Agent(
                 model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
                 system_prompt=(
                     "あなたは親切で有能なAIアシスタントです。"
                     "日本語で丁寧に回答してください。"
-                    "インターネット検索ツール(searchWeb)を使って最新情報を調べることができます。"
-                    "質問に最新情報が必要な場合は積極的に検索ツールを活用し、"
+                    "Webインターネット検索が必要な場合は tavily-search___searchWeb ツールを使って"
+                    "最新情報を調べてください。"
                     "出典URLも含めて分かりやすく回答してください。"
                 ),
                 tools=tools,
