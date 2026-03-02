@@ -166,23 +166,21 @@ export function createAgentCoreRuntime(
   });
 
   // ===== 安定した環境ID の生成 =====
-  // stack.stackName にはデプロイごとに変わる一時ハッシュが含まれるため、
-  // Amplify パイプラインが必ず提供する環境変数を優先して使用する。
-  // AWS_APP_ID  : Amplifyアプリの固有ID（例: "d3nt7aujsrzeps"）
-  // AWS_BRANCH  : デプロイ対象ブランチ名（例: "main"）
-  // これらは同じAmplifyアプリ・ブランチで常に同じ値になり、
-  // 派生するリソース名（ResourceServer識別子など）が安定する。
+  // stack.stackName の構造: "<prefix>-<appId>-<suffix>-..."
+  // stackNameParts[1] = "app" → 常に固定値（Amplify デプロイ間で変わらない）
+  // AWS_APP_ID は使用しない（"d3nt7aujsrzeps" 等の実際のIDに変わると
+  // cognitoDomainPrefix が変わり Cognito ドメイン更新エラーになるため）
+  //
+  // AWS_BRANCH は安定した環境ID として使用可能（"main" 等、ブランチ名は変わらない）
   const stackNameParts = stack.stackName.split("-");
-  const appId =
-    process.env.AWS_APP_ID ||
-    (stackNameParts.length >= 2 ? stackNameParts[1] : "app");
+  const appId = stackNameParts.length >= 2 ? stackNameParts[1] : "app";
   const envId = (process.env.AWS_BRANCH || "main")
     .replace(/[^a-zA-Z0-9]/g, "")
     .toLowerCase()
     .substring(0, 10);
 
-  // Cognito ドメインプレフィックス（グローバル一意）: アプリIDの先頭12文字を使用
-  // 例: "agentgwd3nt7aujsrze"（19文字）
+  // Cognito ドメインプレフィックス（グローバル一意）: "agentgwapp"（固定）
+  // appId = "app" なので cognitoDomainPrefix = "agentgwapp" で安定
   const cognitoDomainPrefix = `agentgw${appId.substring(0, 12)}`
     .toLowerCase()
     .replace(/[^a-z0-9-]/g, "")
@@ -286,8 +284,13 @@ export function createAgentCoreRuntime(
 
   // リソースサーバーID（envIdベースで予測可能な名前）
   const resourceServerId = `gateway-${envId}`;
+  // ロジカルIDを "GatewayResourceServer2" に変更することで、
+  // 旧リソース（identifier: "gateway-oken149"）を DELETE し
+  // 新リソース（identifier: "gateway-main"）を CREATE する。
+  // → 同一ロジカルIDのまま identifier を変えると CloudFormation が
+  //   インプレース REPLACE を試みて M2MClient UPDATE → Gateway UPDATE → FAIL になる。
   const resourceServer = gatewayUserPool.addResourceServer(
-    "GatewayResourceServer",
+    "GatewayResourceServer2",
     {
       identifier: resourceServerId,
       scopes: [invokeScope],
@@ -302,8 +305,10 @@ export function createAgentCoreRuntime(
     },
   });
 
-  // M2M クライアント（client_credentials フロー）
-  const m2mClient = gatewayUserPool.addClient("GatewayM2MClient", {
+  // ロジカルIDを "GatewayM2MClient2" に変更することで、
+  // ResourceServer2 の新スコープ（"gateway-main/invoke"）を持つ新規クライアントを CREATE し
+  // 旧クライアントを DELETE する（スコープ URL の変更を安全に移行）。
+  const m2mClient = gatewayUserPool.addClient("GatewayM2MClient2", {
     userPoolClientName: `gateway-m2m-${envId}`,
     generateSecret: true,
     oAuth: {
@@ -373,9 +378,10 @@ export function createAgentCoreRuntime(
 
   // ===== Gateway M2M認証情報を取得 =====
   // カスタム Cognito クライアントのシークレットを取得する
+  // ロジカルIDを "GetGatewayClientSecret2" に変更して GatewayM2MClient2 のシークレットを取得
   const getClientSecretCR = new cr.AwsCustomResource(
     stack,
-    "GetGatewayClientSecret",
+    "GetGatewayClientSecret2",
     {
       onUpdate: {
         service: "CognitoIdentityServiceProvider",
@@ -384,7 +390,7 @@ export function createAgentCoreRuntime(
           UserPoolId: gatewayUserPool.userPoolId,
           ClientId: m2mClient.userPoolClientId,
         },
-        physicalResourceId: cr.PhysicalResourceId.of("GetGatewayClientSecret"),
+        physicalResourceId: cr.PhysicalResourceId.of("GetGatewayClientSecret2"),
       },
       policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
         resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
