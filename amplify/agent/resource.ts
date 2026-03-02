@@ -12,8 +12,15 @@ import { IUserPool, IUserPoolClient } from "aws-cdk-lib/aws-cognito";
 import * as path from "path";
 import { fileURLToPath } from "url";
 
-// Tavily APIキー（AgentCore Identityに登録される）
-const TAVILY_API_KEY = "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";
+// Tavily APIキー（Amplify Console の環境変数 TAVILY_API_KEY から読み込む）
+// ※ コードにAPIキーをハードコートしないこと（GitHubパブリックリポジトリ対応）
+const TAVILY_API_KEY = process.env.TAVILY_API_KEY || "";
+if (!TAVILY_API_KEY) {
+  throw new Error(
+    "環境変数 TAVILY_API_KEY が未設定です。" +
+      "Amplify Console の環境変数に TAVILY_API_KEY を設定してください。"
+  );
+}
 
 // Tavily Search API の OpenAPI スキーマ
 // Gateway がこのスキーマを元に LLM に検索ツールとして提供する
@@ -149,6 +156,67 @@ def handler(event, context):
     elif event["RequestType"] == "Delete":
         try:
             client.delete_api_key_credential_provider(name=provider_name)
+        except Exception:
+            pass
+        return {"PhysicalResourceId": provider_name}
+`;
+
+// Gateway M2M OAuth2 認証プロバイダーを Identity に登録するLambdaのコード
+// @requires_access_token デコレータが M2M トークンを自動取得できるよう
+// Cognito M2M クライアント情報を AgentCore Identity（CustomOauth2）として登録する
+const OAUTH_PROVIDER_LAMBDA_CODE = `
+import boto3
+import json
+
+def handler(event, context):
+    client = boto3.client("bedrock-agentcore-control", region_name="us-west-2")
+    props = event["ResourceProperties"]
+    provider_name = props["ProviderName"]
+    user_pool_id = props["UserPoolId"]
+    client_id = props["ClientId"]
+    client_secret = props["ClientSecret"]
+    region = props.get("Region", "us-west-2")
+
+    if event["RequestType"] in ["Create", "Update"]:
+        discovery_url = (
+            f"https://cognito-idp.{region}.amazonaws.com"
+            f"/{user_pool_id}/.well-known/openid-configuration"
+        )
+        try:
+            resp = client.create_oauth2_credential_provider(
+                credentialProviderVendor="CustomOauth2",
+                name=provider_name,
+                oauth2ProviderConfigInput={
+                    "customOauth2ProviderConfig": {
+                        "oauthDiscovery": {
+                            "discoveryUrl": discovery_url
+                        },
+                        "clientId": client_id,
+                        "clientSecret": client_secret,
+                    }
+                }
+            )
+            arn = resp["credentialProviderArn"]
+        except Exception as e:
+            err_msg = str(e)
+            if ("already exists" in err_msg.lower()
+                    or "conflict" in err_msg.lower()
+                    or "ConflictException" in err_msg):
+                resp = client.get_oauth2_credential_provider(name=provider_name)
+                arn = resp["credentialProviderArn"]
+            else:
+                raise Exception(f"Failed to create OAuth2 credential provider: {err_msg}")
+
+        return {
+            "PhysicalResourceId": provider_name,
+            "Data": {
+                "CredentialProviderArn": arn,
+            },
+        }
+
+    elif event["RequestType"] == "Delete":
+        try:
+            client.delete_oauth2_credential_provider(name=provider_name)
         except Exception:
             pass
         return {"PhysicalResourceId": provider_name}
@@ -405,36 +473,75 @@ export function createAgentCoreRuntime(
     "UserPoolClient.ClientSecret"
   );
 
-  // トークンエンドポイントURL（カスタム Cognito ドメイン）
-  // cognitoDomainPrefix は synthesis 時に確定する plain string なので直接使用可能
-  const tokenEndpoint = Fn.join("", [
-    "https://",
-    cognitoDomainPrefix,
-    ".auth.",
-    stack.region,
-    ".amazoncognito.com/oauth2/token",
-  ]);
-
   // スコープ文字列（{resourceServerId}/invoke 形式）
-  // これも synthesis 時に確定する plain string
   const gatewayScope = `${resourceServerId}/invoke`;
 
-  // ===== Gateway M2M接続情報をまとめてSecrets Managerに保存 =====
-  // Runtime上のエージェントがこのシークレットを読み込んでGatewayに接続する
+  // ===== Gateway M2M OAuth2 クレデンシャルプロバイダーを Identity に登録 =====
+  // @requires_access_token デコレータが Identity 経由で M2M トークンを自動取得できるよう
+  // Cognito M2M クライアントの情報を AgentCore Identity（CustomOauth2）として登録する
+  const oauthProviderFn = new lambda.Function(stack, "OAuthProviderFn", {
+    runtime: lambda.Runtime.PYTHON_3_12,
+    handler: "index.handler",
+    timeout: Duration.minutes(5),
+    code: lambda.Code.fromInline(OAUTH_PROVIDER_LAMBDA_CODE),
+  });
+
+  oauthProviderFn.addToRolePolicy(
+    new iam.PolicyStatement({
+      actions: ["bedrock-agentcore:*"],
+      resources: ["*"],
+    })
+  );
+  oauthProviderFn.addToRolePolicy(
+    new iam.PolicyStatement({
+      actions: [
+        "secretsmanager:CreateSecret",
+        "secretsmanager:PutSecretValue",
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:DeleteSecret",
+        "secretsmanager:TagResource",
+        "secretsmanager:DescribeSecret",
+      ],
+      resources: ["*"],
+    })
+  );
+
+  const gatewayOAuth2ProviderCR = new CustomResource(
+    stack,
+    "GatewayOAuth2Provider",
+    {
+      serviceToken: new cr.Provider(stack, "OAuthProviderCrProvider", {
+        onEventHandler: oauthProviderFn,
+      }).serviceToken,
+      properties: {
+        ProviderName: "gateway-m2m-oauth",
+        UserPoolId: gatewayUserPool.userPoolId,
+        ClientId: m2mClient.userPoolClientId,
+        // getClientSecretCR が取得した Cognito M2M クライアントシークレット
+        ClientSecret: gatewayClientSecret,
+        Region: stack.region,
+        Version: "1",
+      },
+    }
+  );
+
+  // getClientSecretCR が完了してから実行されるよう依存関係を設定
+  gatewayOAuth2ProviderCR.node.addDependency(getClientSecretCR);
+
+  // ===== Gateway 接続設定を Secrets Manager に保存 =====
+  // M2M 認証情報（clientId/clientSecret）は AgentCore Identity に登録済みのため不要
+  // Runtime エージェントはこのシークレットから gatewayUrl と scopes のみ読み込む
   const gatewayConfigSecret = new sm.CfnSecret(stack, "GatewayConfig", {
     name: "agentcore-gateway-config",
-    description: "AgentCore Gateway M2M credentials for Runtime agent",
+    description: "AgentCore Gateway endpoint config for Runtime agent",
     secretString: Fn.toJsonString({
-      clientId: m2mClient.userPoolClientId,
-      clientSecret: gatewayClientSecret,
-      tokenEndpoint: tokenEndpoint,
       gatewayUrl: gateway.gatewayUrl,
       scopes: gatewayScope,
     }),
   });
 
-  // CfnSecretが作成される前にCustom Resourceが完成している必要がある
-  gatewayConfigSecret.node.addDependency(getClientSecretCR);
+  // OAuth2 プロバイダーが登録された後にシークレットを作成
+  gatewayConfigSecret.node.addDependency(gatewayOAuth2ProviderCR);
 
   // ===== RuntimeのIAMロールにSecrets Manager読み取り権限を付与 =====
   runtime.addToRolePolicy(
@@ -450,6 +557,20 @@ export function createAgentCoreRuntime(
           ":secret:agentcore-gateway-config*",
         ]),
       ],
+    })
+  );
+
+  // ===== RuntimeのIAMロールにAgentCore Identity API呼び出し権限を付与 =====
+  // @requires_access_token デコレータが内部で呼び出す API:
+  //   GetWorkloadAccessToken: ワークロードの認証トークンを取得
+  //   GetResourceOauth2Token: OAuth2 クレデンシャルプロバイダーからM2Mトークンを取得
+  runtime.addToRolePolicy(
+    new iam.PolicyStatement({
+      actions: [
+        "bedrock-agentcore:GetWorkloadAccessToken",
+        "bedrock-agentcore:GetResourceOauth2Token",
+      ],
+      resources: ["*"],
     })
   );
 
