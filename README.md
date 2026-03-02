@@ -240,16 +240,37 @@ npm run dev
 
 ### ❌ デプロイが失敗する（`Name cannot be updated for an existing gateway`）
 
-**原因**: AgentCore Gateway は CloudFormation のインプレース更新非対応です。
+**原因**: AgentCore Gateway は CloudFormation のインプレース更新非対応です。Gateway に依存するリソース（ResourceServer・M2MClient）の変更が Gateway の UPDATE を引き起こすと失敗します。
 
-**対処**: `amplify/agent/resource.ts` の Gateway のロジカル ID を変更します：
+**根本的な対処法**: 変更が連鎖して Gateway を UPDATE しないよう、変更を受けるリソースのロジカル ID を変更して **CREATE → DELETE** に切り替えます：
 
 ```typescript
-// "AgentGateway3" → "AgentGateway4" に変更（数字をインクリメントする）
+// ResourceServer・M2MClient のロジカルIDを変更 → 旧リソースをDELETE、新リソースをCREATE
+gatewayUserPool.addResourceServer("GatewayResourceServer2", { ... });  // 数字をインクリメント
+gatewayUserPool.addClient("GatewayM2MClient2", { ... });               // 数字をインクリメント
+new cr.AwsCustomResource(stack, "GetGatewayClientSecret2", { ... });   // 数字をインクリメント
+
+// Gateway 自体のロジカルIDと名前も変更（強制 CREATE で旧 Gateway を DELETE）
 const gateway = new agentcore.Gateway(stack, "AgentGateway4", {
-  gatewayName: `agent-gw4-${envId}`,  // 名前も変更
+  gatewayName: `agent-gw4-${envId}`,
   ...
 });
+```
+
+**重要**: `cognitoDomainPrefix` の変更は Cognito ドメインの更新エラーになるため、`appId` は `stackNameParts[1]`（固定値 `"app"`）を使い、`process.env.AWS_APP_ID` は使用しないこと。
+
+---
+
+### ❌ Web 検索が古い情報を返す（2024年などの過去の情報）
+
+**原因**: Claude のトレーニングカットオフが2024年頃のため、「最新」＝2024年と認識して検索クエリに古い年を使用してしまいます。
+
+**対処**: システムプロンプトに現在の日付を動的に注入します（`app.py` で実装済み）：
+
+```python
+from datetime import datetime
+today = datetime.now().strftime("%Y年%m月%d日")
+system_prompt = f"現在の日付は {today} です。..."  # → "現在の日付は 2026年03月02日 です。"
 ```
 
 ---
@@ -323,9 +344,15 @@ async def invoke_agent(payload, context):
     # 1. Secrets Manager から Gateway 接続情報を取得
     # 2. OAuth2 で M2M トークンを取得
     # 3. MCP クライアントで Gateway に接続
-    # 4. Strands Agent で Claude Haiku + Tavily ツールを実行
-    # 5. ストリーミングレスポンスを返す
+    # 4. list_tools_sync() 後に手動フィルタで tavily-search___searchWeb のみ許可
+    # 5. 現在日付をシステムプロンプトに注入（モデルの知識カットオフ対策）
+    # 6. Strands Agent で Claude Haiku + Tavily ツールを実行
+    # 7. ストリーミングレスポンスを返す
 ```
+
+**ポイント**:
+- `tool_filters` パラメータはプレフィックス付与前のRAW名でマッチするため機能しない。`list_tools_sync()` 後に `tool_name` 属性で手動フィルタする
+- `datetime.now()` で取得した現在日付をシステムプロンプトに含めることで、LLM のトレーニングカットオフによる古い年の検索クエリ生成を防ぐ
 
 ### [src/App.tsx](src/App.tsx)
 React チャット UI の実装：
