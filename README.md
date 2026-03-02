@@ -363,7 +363,7 @@ CDK TypeScript で以下の AWS リソースを定義：
 - **Secrets Manager `agentcore-gateway-config`**: Gateway URL・スコープを保存（認証情報は Identity に移管済み）
 
 ### [amplify/agent/app.py](amplify/agent/app.py)
-Strands Agent の Python 実装（参考: [har1101/agentcore-l2-construct](https://github.com/har1101/agentcore-l2-construct/blob/master/agent/agent.py)）：
+Strands Agent の Python 実装
 ```python
 @app.entrypoint
 async def invoke_agent(payload, context):
