@@ -309,7 +309,7 @@ export function createAgentCoreRuntime(
   // ===== AgentCore Gateway（L2コンストラクト） =====
   // Gateway名はハイフン区切りのみ許可（アンダースコア不可）
   const gateway = new agentcore.Gateway(stack, "AgentGateway", {
-    gatewayName: `agent-gateway-${envId}`,
+    gatewayName: `agent-gw-${envId}`,
     protocolConfiguration: agentcore.GatewayProtocol.mcp({
       supportedVersions: [agentcore.MCPProtocolVersion.MCP_2025_03_26],
     }),
