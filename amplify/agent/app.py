@@ -1,6 +1,7 @@
 import json
 import boto3
 import httpx
+from datetime import datetime
 from strands import Agent
 from strands.tools.mcp import MCPClient
 from mcp.client.streamable_http import streamablehttp_client
@@ -121,13 +122,17 @@ async def invoke_agent(payload, context):
                 print(f"[WARNING] {TARGET_TOOL} が見つかりません。全ツールを使用: {all_tool_names}")
                 tools = all_tools
 
+            # 現在の日付を動的に注入（モデルのトレーニングカットオフによる誤った年の使用を防ぐ）
+            today = datetime.now().strftime("%Y年%m月%d日")
             agent = Agent(
                 model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
                 system_prompt=(
+                    f"現在の日付は {today} です。"
                     "あなたは親切で有能なAIアシスタントです。"
                     "日本語で丁寧に回答してください。"
                     "Webインターネット検索が必要な場合は tavily-search___searchWeb ツールを使って"
                     "最新情報を調べてください。"
+                    "検索クエリには必ず現在の年を使用してください。"
                     "出典URLも含めて分かりやすく回答してください。"
                 ),
                 tools=tools,
@@ -141,10 +146,12 @@ async def invoke_agent(payload, context):
     except Exception as e:
         # Gateway 接続に失敗した場合はツールなしで応答（フォールバック）
         error_info = str(e)
+        today = datetime.now().strftime("%Y年%m月%d日")
 
         agent = Agent(
             model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
             system_prompt=(
+                f"現在の日付は {today} です。"
                 "あなたは親切で有能なAIアシスタントです。"
                 "日本語で丁寧に回答してください。"
                 f"（注意: 検索ツールが利用できません。理由: {error_info}）"
