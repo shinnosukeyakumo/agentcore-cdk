@@ -1,0 +1,6 @@
+*.ts
+*.js
+node_modules/
+__pycache__/
+*.pyc
+.env
