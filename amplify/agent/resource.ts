@@ -308,8 +308,10 @@ export function createAgentCoreRuntime(
 
   // ===== AgentCore Gateway（L2コンストラクト） =====
   // Gateway名はハイフン区切りのみ許可（アンダースコア不可）
-  const gateway = new agentcore.Gateway(stack, "AgentGateway2", {
-    gatewayName: `agent-gw-${envId}`,
+  // ※ Gateway は CloudFormation によるインプレース UPDATE が不可のため、
+  //    設定変更時はロジカルIDと名前を変更して強制 CREATE（古いものは DELETE）する。
+  const gateway = new agentcore.Gateway(stack, "AgentGateway3", {
+    gatewayName: `agent-gw3-${envId}`,
     protocolConfiguration: agentcore.GatewayProtocol.mcp({
       supportedVersions: [agentcore.MCPProtocolVersion.MCP_2025_03_26],
     }),
@@ -345,7 +347,7 @@ export function createAgentCoreRuntime(
   // CloudFormation が Gateway の UPDATE を試みて "Name cannot be updated" エラーになる。
   // 回避策: CfnRolePolicy (L1) を使って別リソースとして追加する。
   // → Gateway の DependsOn チェーンに入らないため、Gateway UPDATE は発生しない。
-  new iam.CfnRolePolicy(stack, "GatewayWorkloadPolicy", {
+  new iam.CfnRolePolicy(stack, "GatewayWorkloadPolicy3", {
     roleName: (gateway.role as iam.IRole).roleName,
     policyName: "WorkloadIdentityAccess",
     policyDocument: {

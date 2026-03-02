@@ -245,9 +245,9 @@ npm run dev
 **対処**: `amplify/agent/resource.ts` の Gateway のロジカル ID を変更します：
 
 ```typescript
-// "AgentGateway2" → "AgentGateway3" に変更
-const gateway = new agentcore.Gateway(stack, "AgentGateway3", {
-  gatewayName: `agent-gw2-${envId}`,  // 名前も変更
+// "AgentGateway3" → "AgentGateway4" に変更（数字をインクリメントする）
+const gateway = new agentcore.Gateway(stack, "AgentGateway4", {
+  gatewayName: `agent-gw4-${envId}`,  // 名前も変更
   ...
 });
 ```
