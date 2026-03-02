@@ -96,20 +96,30 @@ async def invoke_agent(payload, context):
         gateway_url = config["gatewayUrl"]
 
         # AgentCore Gateway に MCP クライアントとして接続
-        # tool_filters で tavily-search___searchWeb のみ許可し、
-        # Gateway が返す他のツール（search_web 等）を除外する
         mcp_client = MCPClient(
             lambda: streamablehttp_client(
                 url=gateway_url,
                 headers={"Authorization": f"Bearer {token}"},
             ),
-            tool_filters={"allowed": ["tavily-search___searchWeb"]},
         )
 
         with mcp_client:
-            # Gateway が提供するツール一覧を取得（Tavily 検索のみ）
-            tools = mcp_client.list_tools_sync()
-            print(f"利用可能なツール: {[getattr(t, 'tool_name', str(t)) for t in tools]}")
+            # Gateway が提供する全ツールを取得してから手動フィルタリング
+            # ※ tool_filters パラメータはプレフィックス付与前のRAW名でマッチするため
+            #   "tavily-search___searchWeb" では機能しない。list_tools_sync() 後に
+            #   tool_name 属性（プレフィックス済み）でフィルタする。
+            all_tools = mcp_client.list_tools_sync()
+            all_tool_names = [getattr(t, "tool_name", str(t)) for t in all_tools]
+            print(f"[DEBUG] Gateway全ツール: {all_tool_names}")
+
+            TARGET_TOOL = "tavily-search___searchWeb"
+            tools = [t for t in all_tools if getattr(t, "tool_name", "") == TARGET_TOOL]
+            print(f"[DEBUG] フィルタ後ツール: {[getattr(t, 'tool_name', str(t)) for t in tools]}")
+
+            if not tools:
+                # ターゲットツールが見つからない場合は全ツールを使用（フォールバック）
+                print(f"[WARNING] {TARGET_TOOL} が見つかりません。全ツールを使用: {all_tool_names}")
+                tools = all_tools
 
             agent = Agent(
                 model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
